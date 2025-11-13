@@ -4,6 +4,7 @@ from openai import OpenAI
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 import langid  # confidence-based language ID
+from rag import answer_with_kb
 
 load_dotenv()
 
@@ -103,43 +104,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_lang = pick_language(user_text, prev_lang)
     context.user_data["last_lang"] = target_lang  # remember for next time
 
-    # 2) Ask model to respond in that language
-    def call_openai_reply():
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_MESSAGE},
-                {"role": "user",
-                 "content": (
-                     f"User language code: {target_lang}\n"
-                     f"Reply STRICTLY in this language. Do not add other languages.\n\n"
-                     f"User said:\n{user_text}"
-                 )},
-            ],
-            temperature=0.1,
-        )
-        return resp.choices[0].message.content.strip()
-
-    # 3) If the reply language mismatches, translate it to target_lang
-    def translate_if_needed(text: str) -> str:
-        if ensure_lang(text, target_lang):
-            return text
-        # Force a translation pass (deterministic)
-        tr = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system",
-                 "content": "You are a translator. Translate the user's text into the specified language. "
-                            "Return only the translated text, no explanations."},
-                {"role": "user", "content": f"Target language code: {target_lang}\n\nText:\n{text}"},
-            ],
-            temperature=0.0,
-        )
-        return tr.choices[0].message.content.strip()
-
+    # 2) Use your KB (RAG) to answer strictly from your knowledge base,
+    #    and in the detected language.
     try:
-        reply_text = await asyncio.to_thread(call_openai_reply)
-        reply_text = await asyncio.to_thread(translate_if_needed, reply_text)
+       reply_text = await asyncio.to_thread(answer_with_kb, target_lang, user_text)
+        
     except Exception:
         reply_text = "Sorry—my language service had an issue. Please try again."
 
