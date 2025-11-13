@@ -1,0 +1,4 @@
+python-telegram-bot[webhooks]==21.4
+openai>=1.51.0
+python-dotenv>=1.0.1
+langid==1.1.6
